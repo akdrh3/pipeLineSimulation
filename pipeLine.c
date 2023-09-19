@@ -151,4 +151,5 @@ int main()
     }
 
     emitOutput(instructions, icount);
+    return 0;
 }
