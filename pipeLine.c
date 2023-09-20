@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// build binary and give .o file and test.in
+
 #define MAX_INSTRUCTIONS 32
 
 enum PipelineStage
@@ -27,29 +29,42 @@ typedef struct
     enum PipelineStage stage;
 } Instruction;
 
-int initStructuresAndCounts(Instruction *instructions)
+int initStructuresAndCounts(Instruction instructions[], FILE *fptr)
 {
-    FILE *fptr; // read test.in and parse the instruction
-    fptr = fopen("test.in", "r");
-    if (fptr == NULL) // check if the file exits
-    {
-        printf("Not able to open the file.");
-    }
+    char *line = NULL;
+    size_t len = 0;
+    __ssize_t read;
 
     // loop through each line of input and parse the data into instruction
     int i = 0;
-    while (i < MAX_INSTRUCTIONS && fscanf(fptr, "%c,%d,%d,%d", &instructions[i].opcode, &instructions[i].rd, &instructions[i].rs, &instructions[i].rt) == 4)
+    while (i < MAX_INSTRUCTIONS && (read = getline(&line, &len, fptr)) != -1)
     {
-        i += 1;
+        if (sscanf(line, "%c,%d,%d,%d", &instructions[i].opcode, &instructions[i].rd, &instructions[i].rs, &instructions[i].rt) == 4)
+        {
+            instructions[i].Ft = 0;
+            instructions[i].Dt = 0;
+            instructions[i].Et = 0;
+            instructions[i].Mt = 0;
+            instructions[i].Wt = 0;
+            instructions[i].stage = FETCH_STAGE;
+
+            i += 1;
+        }
+    }
+
+    if (line)
+    {
+        free(line);
     }
 
     fclose(fptr); // close file
     return i;
 }
 
-void fetch_stage(Instruction *instructions, int cycle, int len)
+void fetch_stage(Instruction instructions[], int cycle, int len)
 {
     int i = 0;
+    // depends on decode stage, it should stall as well
     for (i = 0; i < len; i++)
     {
         if (instructions[i].stage == FETCH_STAGE)
@@ -61,13 +76,16 @@ void fetch_stage(Instruction *instructions, int cycle, int len)
     }
 }
 
-void decode_stage(Instruction *instructions, int cycle, int len)
+void decode_stage(Instruction instructions[], int cycle, int len)
 {
     int i = 0;
     for (i = 0; i < len; i++)
+    // if previous inst is L and the its rd is
+    // same as next inst's rs or rt it will stall one cycle on decode and fetch stage
     {
         if (instructions[i].stage == DECODE_STAGE)
         {
+
             instructions[i].stage = EXECUTE_STAGE;
             instructions[i].Dt = cycle;
             break;
@@ -75,7 +93,7 @@ void decode_stage(Instruction *instructions, int cycle, int len)
     }
 }
 
-void execute_stage(Instruction *instructions, int cycle, int len)
+void execute_stage(Instruction instructions[], int cycle, int len)
 {
     int i = 0;
     for (i = 0; i < len; i++)
@@ -89,7 +107,7 @@ void execute_stage(Instruction *instructions, int cycle, int len)
     }
 }
 
-void memory_stage(Instruction *instructions, int cycle, int len)
+void memory_stage(Instruction instructions[], int cycle, int len)
 {
     int i = 0;
     for (i = 0; i < len; i++)
@@ -103,7 +121,7 @@ void memory_stage(Instruction *instructions, int cycle, int len)
     }
 }
 
-void write_back_stage(Instruction *instructions, int cycle, int len)
+void write_back_stage(Instruction instructions[], int cycle, int len)
 {
     int i = 0;
     for (i = 0; i < len; i++)
@@ -117,7 +135,7 @@ void write_back_stage(Instruction *instructions, int cycle, int len)
     }
 }
 
-void emitOutput(Instruction *instructions, int len)
+void emitOutput(Instruction instructions[], int len)
 {
     for (int i = 0; i < len; i++)
     {
@@ -125,31 +143,56 @@ void emitOutput(Instruction *instructions, int len)
     }
 }
 
-int main()
+int main(int argc, char *argv[])
 {
-    Instruction instructions[MAX_INSTRUCTIONS] = {0}; // initialize all structures up to MAX_INSTRUCTIONS
-    int icount = initStructuresAndCounts(&instructions);
-
-    int completedInst, cycle = 0;
-    while (completedInst < icount)
+    if (argc != 2)
     {
-        fetch_stage(&instructions, cycle, icount);
-        decode_stage(&instructions, cycle, icount);
-        execute_stage(&instructions, cycle, icount);
-        memory_stage(&instructions, cycle, icount);
-        write_back_stage(&instructions, cycle, icount);
-        cycle += 1;
-        completedInst += 1;
+        printf("%s\n", argv[0]);
+        return 1;
     }
-    for (int i = 0; i < icount; i++)
-    { // check if there is any instruction not done
-        if (instructions[i].stage != DONE)
+
+    char *filename = argv[1];
+    FILE *fptr = fopen(filename, "r");
+    if (fptr == NULL)
+    {
+        printf("something went wrong while opening the file");
+        return 1;
+    }
+
+    Instruction instructions[MAX_INSTRUCTIONS] = {0}; // initialize all structures up to MAX_INSTRUCTIONS
+    int icount = initStructuresAndCounts(instructions, fptr);
+
+    int cycle = 0;
+    while (1)
+    {
+        write_back_stage(instructions, cycle, icount);
+        memory_stage(instructions, cycle, icount);
+        execute_stage(instructions, cycle, icount);
+        decode_stage(instructions, cycle, icount);
+        fetch_stage(instructions, cycle, icount);
+
+        int all_completed = 1;
+        for (int i = 0; i < icount; i++)
         {
-            printf("something went wrong");
+            // check if there is any instruction not done
+            if (instructions[i].stage < DONE)
+            {
+                all_completed = 0;
+                break;
+            }
+        }
+
+        if (all_completed)
+        {
             break;
         }
+
+        cycle += 1;
     }
 
     emitOutput(instructions, icount);
     return 0;
 }
+
+// if previous inst is L and the its rd is
+// same as next inst's rs or rt it will stall one cycle on decode and fetch stage
