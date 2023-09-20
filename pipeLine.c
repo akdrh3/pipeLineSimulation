@@ -21,6 +21,8 @@ typedef struct
     int rd;
     int rs;
     int rt;
+    int stall;
+    int fetchStall;
     int Ft; // fetch time
     int Dt; // decode time
     int Et; // execute time
@@ -41,6 +43,8 @@ int initStructuresAndCounts(Instruction instructions[], FILE *fptr)
     {
         if (sscanf(line, "%c,%d,%d,%d", &instructions[i].opcode, &instructions[i].rd, &instructions[i].rs, &instructions[i].rt) == 4)
         {
+            instructions[i].fetchStall = 0;
+            instructions[i].stall = 0;
             instructions[i].Ft = 0;
             instructions[i].Dt = 0;
             instructions[i].Et = 0;
@@ -69,6 +73,17 @@ void fetch_stage(Instruction instructions[], int cycle, int len)
     {
         if (instructions[i].stage == FETCH_STAGE)
         {
+            if (instructions[i].stall == 1)
+            {
+                instructions[i + 1].fetchStall = 1;
+            }
+
+            if (instructions[i].fetchStall == 1)
+            {
+                instructions[i].fetchStall = 0;
+                break;
+            }
+
             instructions[i].stage = DECODE_STAGE;
             instructions[i].Ft = cycle;
             break;
@@ -85,6 +100,17 @@ void decode_stage(Instruction instructions[], int cycle, int len)
     {
         if (instructions[i].stage == DECODE_STAGE)
         {
+            // check for the next instruction is depends on rd data if it is Load instruction
+            if (instructions[i].opcode == 'L' && (instructions[i].rd == instructions[i + 1].rs || instructions[i].rd == instructions[i + 1].rt))
+            {
+                instructions[i + 1].stall = 1;
+            }
+
+            if (instructions[i].stall == 1)
+            {
+                instructions[i].stall = 0;
+                break;
+            }
 
             instructions[i].stage = EXECUTE_STAGE;
             instructions[i].Dt = cycle;
